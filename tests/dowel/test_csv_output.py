@@ -38,19 +38,34 @@ class TestCsvOutput:
     def test_record_inconsistent(self):
         foo = 1
         bar = 10
+        new = 20
+        newer = 30
+
+        # row 0
         self.tabular.record('foo', foo)
         self.csv_output.record(self.tabular)
-        self.tabular.record('foo', foo * 2)
 
-        # this would create a new column and add an N/A entry to the first row
+        # row 1
+        self.tabular.record('foo', foo * 2)
+        # this would create 2 new columns and add empty entries to the first row
         self.tabular.record('bar', bar * 2)
+        self.tabular.record('new', new * 2)
+        self.csv_output.record(self.tabular)
+
+        # row 2
+        self.tabular.record('foo', foo * 3)
+        self.tabular.record('bar', bar * 3)
+        self.tabular.record('new', new * 3)
+        # this would add another column
+        self.tabular.record('newer', newer * 3)
         self.csv_output.record(self.tabular)
 
         self.csv_output.dump()
 
         correct = [
-            {'foo': str(foo), 'bar': str("N/A")},
-            {'foo': str(foo * 2), 'bar': str(bar * 2)},
+            {'foo': str(foo), 'bar': '', 'new': '', 'newer': ''},
+            {'foo': str(foo * 2), 'bar': str(bar * 2), 'new': str(new * 2), 'newer': ''},
+            {'foo': str(foo * 3), 'bar': str(bar * 3), 'new': str(new * 3), 'newer': str(newer * 3)},
         ]  # yapf: disable
         self.assert_csv_matches(correct)
 

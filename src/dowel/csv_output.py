@@ -1,4 +1,5 @@
 """A `dowel.logger.LogOutput` for CSV files."""
+import os
 import csv
 import warnings
 
@@ -25,49 +26,64 @@ class CsvOutput(FileOutput):
         """Accept TabularInput objects only."""
         return (TabularInput, )
 
+    def _init_log_writer(self, mode, fieldnames, writeheader = True):
+        """Initialize csv writer to log file using specified fieldnames,
+        and update relevant values.
+        """
+        self._fieldnames = fieldnames
+        self.mode = mode # mode may be upated to 'a'
+        self._log_file, self._writer = self._init_writer(
+            self._log_file.name,
+            self.mode,
+            self._fieldnames,
+            writeheader)
+
+    def _init_writer(self, filename, mode, fieldnames, writeheader = True):
+        """Helper function to initialize a writer to a specified file"""
+        f = open(filename, mode)
+        writer = csv.DictWriter(f, fieldnames)
+        if writeheader:
+            writer.writeheader()
+        return f, writer
+
     def record(self, data, prefix=''):
         """Log tabular data to CSV."""
         if isinstance(data, TabularInput):
             to_csv = data.as_primitive_dict
+            new_fields = set(to_csv.keys())
 
             if not to_csv.keys() and not self._writer:
                 return
 
             if not self._writer:
-                self._fieldnames = set(to_csv.keys())
-                self._writer = csv.DictWriter(
-                    self._log_file,
-                    fieldnames=self._fieldnames,
-                    extrasaction='ignore')
-                self._writer.writeheader()
+                self._init_log_writer(
+                    mode = self.mode,
+                    fieldnames = new_fields)
 
             # new fieldnames detected, need to read in current file, modify, and write everything again
             if to_csv.keys() != self._fieldnames:
-                # obtain extra fieldname
-                extra_field = (set(to_csv.keys()) ^ set(self._fieldnames)).pop()
-
                 # close original log file
                 self._log_file.close()
 
-                # store original data in RAM
-                reader = csv.DictReader(open(self._log_file.name, 'r'))
-                origin_data = []
-                for row in reader:
-                    origin_data.append(row)
+                # reader of original data
+                origin_reader = csv.DictReader(open(self._log_file.name, 'r'))
 
-                # reopen overwrite original log file
-                self._log_file = open(self._log_file.name, self.mode)
-                self._fieldnames = set(to_csv.keys())
-                self._writer = csv.DictWriter(
-                    self._log_file,
-                    fieldnames=self._fieldnames,
-                    extrasaction='ignore')
-                self._writer.writeheader()
+                # writer of a tmp file
+                tmp_file, tmp_file_writer = self._init_writer(
+                    "tmp.csv", 'w',
+                    new_fields)
 
-                # write modified data to file
-                for row in origin_data:
-                    row[extra_field] = "N/A" # data of new field is not applicable for previous rows
-                    self._writer.writerow(row)
+                # read in original data line by line and write modified data to tmp file
+                for row in origin_reader:
+                    tmp_file_writer.writerow(row) # exploit restval variable to fill in empty entries
+
+                # rename the file to log_file and reopen it
+                tmp_file.close() # flush tmp file data
+                os.rename("tmp.csv", self._log_file.name)
+                self._init_log_writer(
+                    fieldnames = new_fields,
+                    mode='a',
+                    writeheader=False)
 
             self._writer.writerow(to_csv)
 
@@ -75,18 +91,6 @@ class CsvOutput(FileOutput):
                 data.mark(k)
         else:
             raise ValueError('Unacceptable type.')
-
-    def _warn(self, msg):
-        """Warns the user using warnings.warn.
-
-        The stacklevel parameter needs to be 3 to ensure the call to logger.log
-        is the one printed.
-        """
-        if not self._disable_warnings and msg not in self._warned_once:
-            warnings.warn(
-                colorize(msg, 'yellow'), CsvOutputWarning, stacklevel=3)
-        self._warned_once.add(msg)
-        return msg
 
     def disable_warnings(self):
         """Disable logger warnings for testing."""
