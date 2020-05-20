@@ -41,13 +41,33 @@ class CsvOutput(FileOutput):
                     extrasaction='ignore')
                 self._writer.writeheader()
 
+            # new fieldnames detected, need to read in current file, modify, and write everything again
             if to_csv.keys() != self._fieldnames:
-                self._warn('Inconsistent TabularInput keys detected. '
-                           'CsvOutput keys: {}. '
-                           'TabularInput keys: {}. '
-                           'Did you change key sets after your first '
-                           'logger.log(TabularInput)?'.format(
-                               set(self._fieldnames), set(to_csv.keys())))
+                # obtain extra fieldname
+                extra_field = (set(to_csv.keys()) ^ set(self._fieldnames)).pop()
+
+                # close original log file
+                self._log_file.close()
+
+                # store original data in RAM
+                reader = csv.DictReader(open(self._log_file.name, 'r'))
+                origin_data = []
+                for row in reader:
+                    origin_data.append(row)
+
+                # reopen overwrite original log file
+                self._log_file = open(self._log_file.name, self.mode)
+                self._fieldnames = set(to_csv.keys())
+                self._writer = csv.DictWriter(
+                    self._log_file,
+                    fieldnames=self._fieldnames,
+                    extrasaction='ignore')
+                self._writer.writeheader()
+
+                # write modified data to file
+                for row in origin_data:
+                    row[extra_field] = "N/A" # data of new field is not applicable for previous rows
+                    self._writer.writerow(row)
 
             self._writer.writerow(to_csv)
 
